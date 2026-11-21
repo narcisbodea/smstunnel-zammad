@@ -85,6 +85,9 @@ The **Test** button in Zammad's dialog sends one real text to the number you ent
 - **When a text fails,** the ticket shows a **Delivery failed** note: at once if no retry can help, otherwise after
   Zammad's last try, about 12 minutes later. If the answer was unclear, the note says the text may already have gone
   out. Zammad's own retries can't send it twice, but check your phone before writing it again.
+- **More than one phone.** A reply goes out from the phone the customer wrote to. If that phone is offline and another
+  phone of your account is online, SMSTunnel uses that one, so the customer may see a different number. Notifications
+  go from your main phone.
 - **160 characters.** Zammad cuts every SMS to 160 characters, whichever provider it uses.
 - **Speed.** One phone sends about 28 SMS parts every 65 seconds (Android's limit). More texts wait their turn.
 - **Which texts become tickets.** Texts from a phone number. Texts from a sender name or a short code, such as a bank's
