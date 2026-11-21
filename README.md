@@ -128,6 +128,9 @@ docker compose run --rm zammad-init
 
 Finally remove `IMAGE_REPO` from `.env`, set `VERSION` back to the tag you ran before, and run `docker compose up -d`.
 
+If you went back to the plain image without these steps, Zammad keeps working, but the SMSTunnel channels stay in the
+database with their key and show an error. Delete them under **Channels → SMS**.
+
 ## Development
 
 The sources are in `src/`, laid out as they land in Zammad. `ruby script/build.rb` builds `smstunnel.szpm`, and
