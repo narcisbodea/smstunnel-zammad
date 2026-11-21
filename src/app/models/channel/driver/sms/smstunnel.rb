@@ -29,12 +29,21 @@ class Channel::Driver::Sms::Smstunnel < Channel::Driver::Sms::Base
   # What #process answers. The webhook controller ignores it; SMSTunnel only reads the status.
   RECEIVED = ['application/json; charset=UTF-8', '{}'].freeze
 
+  # What no retry can change, so agents are told at once.
+  NEVER_WILL_SEND = [NOT_INTERNATIONAL, REFUSED].freeze
+
+  # CommunicateSmsJob's `retry_on ... attempts: 4`.
+  LAST_TRY = 4
+
   # Why a text was not handed over. Its message reaches agents and the log, so it never holds a
   # number, the text or the key.
   class NotSent < StandardError
-    def initialize(message, channel_at_fault: false)
+    attr_reader :final
+
+    def initialize(message, channel_at_fault: false, final: false)
       super(message)
       @channel_at_fault = channel_at_fault
+      @final            = final
     end
 
     # Zammad's way of asking whether to mark the whole channel as failing.
@@ -65,7 +74,7 @@ class Channel::Driver::Sms::Smstunnel < Channel::Driver::Sms::Base
       raise NotSent, 'This SMS channel is turned off, so the text was not sent.' if channel && !channel.active
       return if @article.created_at >= RETRY_WINDOW.ago
 
-      raise NotSent, 'This text is more than 23 hours old, so it was not sent. Send it again if it still matters.'
+      raise NotSent.new('This text is more than 23 hours old, so it was not sent. Send it again if it still matters.', final: true)
     end
 
     # Per article and number: a repeat of this job gets the first answer back instead of a second
@@ -97,12 +106,41 @@ class Channel::Driver::Sms::Smstunnel < Channel::Driver::Sms::Base
       @job.instance_variable_set(:@smstunnel_refusals, refusals)
       return if refusals.empty? || recipient != numbers.last
 
-      raise NotSent, refusals.values.first if numbers.size == 1
+      message = refusals.values.first
+      message = "#{refusals.size} of #{numbers.size} numbers: #{message}" if numbers.size > 1
+      raise NotSent.new(message, final: refusals.values.all? { |text| NEVER_WILL_SEND.include?(text) })
+    end
 
-      raise NotSent, "#{refusals.size} of #{numbers.size} numbers: #{refusals.values.first}"
+    # Zammad means to add a "Delivery failed" note when an SMS fails for good, but in 7.2 that step
+    # crashes first (the job calls a max_attempts that doesn't exist), and a text that never left
+    # would look sent in the ticket. So the package adds the same note, once per text, unless this
+    # Zammad can do it itself. A failure to write the note never changes what happens to the text.
+    def report(failure)
+      return if !failure.final && @job.executions < LAST_TRY
+      return if @job.respond_to?(:max_attempts, true) || reported?
+
+      Ticket::Article.create!(
+        ticket_id:     @article.ticket_id,
+        content_type:  'text/plain',
+        body:          "Unable to send SMS message: #{failure.message}",
+        internal:      true,
+        sender:        Ticket::Article::Sender.find_by(name: 'System'),
+        type:          Ticket::Article::Type.find_by(name: 'note'),
+        preferences:   { delivery_article_id_related: @article.id, delivery_message: true },
+        updated_by_id: 1,
+        created_by_id: 1,
+      )
+    rescue ActiveRecord::ActiveRecordError => e
+      Rails.logger.error "SMSTunnel: could not add the delivery note (#{e.class})"
     end
 
     private
+
+    def reported?
+      Ticket::Article
+        .where(ticket_id: @article.ticket_id, internal: true, type_id: Ticket::Article::Type.find_by(name: 'note').id)
+        .any? { |note| note.preferences['delivery_article_id_related'] == @article.id }
+    end
 
     def system_article?
       @article.sender&.name == 'System'
@@ -238,6 +276,9 @@ class Channel::Driver::Sms::Smstunnel < Channel::Driver::Sms::Base
 
     job&.after_turn(attr[:recipient], refusal)
     true
+  rescue NotSent => e
+    job&.report(e)
+    raise
   end
 
   def process(_options, attr, channel)
