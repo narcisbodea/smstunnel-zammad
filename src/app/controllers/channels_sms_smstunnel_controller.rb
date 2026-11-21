@@ -1,7 +1,7 @@
 # Copyright (c) 2026 NARBOWEB SRL. Licensed under the MIT License.
 
-# Zammad's SMS webhook address, for the tokens of SMSTunnel channels only (see
-# config/routes/00_smstunnel_sms_webhook.rb). Every other token keeps going to Zammad's own
+# Zammad's SMS webhook address, for requests that belong to SMSTunnel (see
+# config/routes/00_smstunnel_sms_webhook.rb). Every other request keeps going to Zammad's own
 # controller. A text is taken only with a valid SMSTunnel signature over the exact bytes received;
 # a refusal changes nothing, not even the channel's status.
 class ChannelsSmsSmstunnelController < ApplicationController
@@ -13,10 +13,10 @@ class ChannelsSmsSmstunnelController < ApplicationController
   skip_after_action  :set_csrf_token_headers, raise: false
 
   def webhook
-    return head(:method_not_allowed) if !request.post?
-
+    # The answer Zammad gives for a channel that is off or gone.
     channel = Channel::Driver::Sms::Smstunnel.webhook_channel(request.path_parameters[:token])
     return render(json: { message: 'channel not found' }, status: :not_found) if !channel
+    return head(:method_not_allowed) if !request.post?
 
     event = Channel::Driver::Sms::Smstunnel::SignedEvent.from_request(
       secret:    channel.options[:app_secret],

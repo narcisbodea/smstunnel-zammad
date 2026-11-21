@@ -94,6 +94,9 @@ The **Test** button in Zammad's dialog sends one real text to the number you ent
 
 ## Uninstall
 
+First turn off **Forward received texts** in the SMSTunnel dashboard, so that no text reaches a Zammad that can no
+longer read it.
+
 Uninstalling removes the SMSTunnel channels, with their API key and signing secret. Tickets stay. Replies on tickets
 that came from a removed channel can no longer be sent by SMS.
 

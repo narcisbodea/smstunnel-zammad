@@ -190,13 +190,26 @@ class Channel::Driver::Sms::Smstunnel < Channel::Driver::Sms::Base
 
   # The active SMSTunnel account channel this webhook token belongs to, if any.
   def self.webhook_channel(token)
-    return if token.blank?
-
     Channel.where(active: true, area: 'Sms::Account').find do |channel|
-      channel.options[:adapter] == 'sms/smstunnel' &&
-        channel.options[:webhook_token].present? &&
-        ActiveSupport::SecurityUtils.secure_compare(channel.options[:webhook_token].to_s, token.to_s)
+      channel.options[:adapter] == 'sms/smstunnel' && token_of?(channel, token)
     end
+  end
+
+  # Whether this package answers a webhook request: for the token of an SMSTunnel channel, on or off,
+  # and for SMSTunnel's own requests to an address no channel has any more. Those carry a number and
+  # a private text, which Zammad's controller would write to its log. Every other request is left to
+  # Zammad, including one with this header that names another provider's channel.
+  def self.webhook_request?(request)
+    token   = request.path_parameters[:token]
+    channel = Channel.where(area: 'Sms::Account').find { |candidate| token_of?(candidate, token) }
+    return channel.options[:adapter] == 'sms/smstunnel' if channel
+
+    request.headers[SIGNATURE_HEADER].present?
+  end
+
+  def self.token_of?(channel, token)
+    channel.options[:webhook_token].present? && token.present? &&
+      ActiveSupport::SecurityUtils.secure_compare(channel.options[:webhook_token].to_s, token.to_s)
   end
 
   # The number as SMSTunnel should get it, or nil: only + and a country code are ever sent, so the
